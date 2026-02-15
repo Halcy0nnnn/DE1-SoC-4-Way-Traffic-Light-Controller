@@ -1,0 +1,67 @@
+module breadboard_led_traffic_controller(
+    input CLOCK_50,        // 50MHz Clock
+    input [0:0] KEY,       // KEY[0] Reset
+    output [11:0] GPIO_0,  // 12 Breadboard LEDs
+    output [6:0] HEX0      // Countdown Display
+);
+
+    reg [1:0] state;
+    reg [3:0] timer;
+    reg [25:0] clk_count;
+    wire tick = (clk_count == 49_999_999);
+
+    // 1. Clock Divider (50MHz to 1Hz)
+    always @(posedge CLOCK_50 or negedge KEY[0]) begin
+        if (!KEY[0]) clk_count <= 0;
+        else clk_count <= (tick) ? 0 : clk_count + 1;
+    end
+
+    // 2. FSM & Timer Logic
+    always @(posedge CLOCK_50 or negedge KEY[0]) begin
+        if (!KEY[0]) begin
+            state <= 2'b00; timer <= 4'd9;
+        end else if (tick) begin
+            if (timer == 0) begin
+                case (state)
+                    2'b00: begin state <= 2'b01; timer <= 4'd3; end // NS G -> Y
+                    2'b01: begin state <= 2'b10; timer <= 4'd9; end // NS Y -> EW G
+                    2'b10: begin state <= 2'b11; timer <= 4'd3; end // EW G -> Y
+                    2'b11: begin state <= 2'b00; timer <= 4'd9; end // EW Y -> NS G
+                endcase
+            end else timer <= timer - 1;
+        end
+    end
+
+    // 3. LED Logic (Independent Control for 12 LEDs)
+    assign GPIO_0[0] = (state == 2'b00); // N Green
+    assign GPIO_0[1] = (state == 2'b01); // N Yellow
+    assign GPIO_0[2] = (state == 2'b10 || state == 2'b11); // N Red
+    
+    assign GPIO_0[3] = (state == 2'b00); // S Green
+    assign GPIO_0[4] = (state == 2'b01); // S Yellow
+    assign GPIO_0[5] = (state == 2'b10 || state == 2'b11); // S Red
+
+    assign GPIO_0[6] = (state == 2'b10); // E Green
+    assign GPIO_0[7] = (state == 2'b11); // E Yellow
+    assign GPIO_0[8] = (state == 2'b00 || state == 2'b01); // E Red
+
+    assign GPIO_0[9] = (state == 2'b10); // W Green
+    assign GPIO_0[10]= (state == 2'b11); // W Yellow
+    assign GPIO_0[11]= (state == 2'b00 || state == 2'b01); // W Red
+
+    // 4. HEX Decoder
+    hex_decoder h0 (timer, HEX0);
+endmodule
+
+module hex_decoder(input [3:0] bin, output reg [6:0] seg);
+    always @(*) begin
+        case(bin)
+            4'h0: seg = 7'b1000000; 4'h1: seg = 7'b1111001;
+            4'h2: seg = 7'b0100100; 4'h3: seg = 7'b0110000;
+            4'h4: seg = 7'b0011001; 4'h5: seg = 7'b0010010;
+            4'h6: seg = 7'b0000010; 4'h7: seg = 7'b1111000;
+            4'h8: seg = 7'b0000000; 4'h9: seg = 7'b0010000;
+            default: seg = 7'b1111111;
+        endcase
+    end
+endmodule
